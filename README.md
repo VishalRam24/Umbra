@@ -63,6 +63,28 @@ npm run dev
 npm run tauri build
 ```
 
+### Cross-Platform Skeleton Build Commands
+
+```bash
+npm run build:macos
+npm run build:windows
+npm run build:android
+npm run build:ios
+```
+
+See `docs/build/cross-platform-skeleton.md` for what this skeleton includes and what native toolchains are expected on each host machine.
+
+### CI Workflow Skeletons
+
+GitHub Actions skeleton workflows are available in `.github/workflows/` for:
+
+- macOS
+- Windows
+- Android
+- iOS
+
+See `.github/workflows/README.md` for details and what to replace when enabling full native CI.
+
 ## Project Structure
 
 ```
