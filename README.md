@@ -1,6 +1,6 @@
 # Umbra
 
-A native macOS infinite canvas editor — inspired by Milanote and Apple Freeform. Built with **Tauri 2**, **React 19**, **Zustand**, and **Tailwind CSS**.
+An infinite canvas editor — inspired by industry standards. Built with **Tauri 2**, **React 19**, **Zustand**, and **Tailwind CSS**.
 
 ![Umbra Canvas](docs/screenshots/canvas.png)
 
