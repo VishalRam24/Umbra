@@ -10,6 +10,7 @@ export interface Workspace {
 
 export interface UserSettings {
   displayName: string;
+  theme?: "dark" | "light";
 }
 
 export interface TrashEntry {

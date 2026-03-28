@@ -3,6 +3,7 @@ import { useBoardStore } from "@/store/useBoardStore";
 import UmbraLogo from "./UmbraLogo";
 import UserSettingsModal from "./UserSettingsModal";
 import PasswordModal, { hashPassword, type PasswordMode } from "./PasswordModal";
+import ThemeToggle from "@/features/canvas/ThemeToggle";
 
 export default function HomePage() {
   const displayName = useBoardStore((s) => s.userSettings.displayName);
@@ -13,6 +14,7 @@ export default function HomePage() {
   const openWorkspace = useBoardStore((s) => s.openWorkspace);
   const lockWorkspace = useBoardStore((s) => s.lockWorkspace);
   const unlockWorkspace = useBoardStore((s) => s.unlockWorkspace);
+  const isLight = useBoardStore((s) => (s.userSettings.theme || "dark") === "light");
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -118,7 +120,7 @@ export default function HomePage() {
             Umbra
           </span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] text-white/35 hover:text-white/70 hover:bg-white/[0.04] transition-all"
@@ -129,18 +131,19 @@ export default function HomePage() {
             </svg>
             Settings
           </button>
+          <ThemeToggle inline />
         </div>
       </header>
 
       {/* Content */}
       <main className="flex-1 px-8 py-8 max-w-5xl mx-auto w-full">
         <h1 className="text-[28px] font-bold text-white/90 mb-1">{greeting}</h1>
-        <p className="text-[13px] text-white/30 mb-8">
+        <p className="text-[13px] text-white/40 mb-8">
           Your creative workspace awaits.
         </p>
 
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-[14px] font-medium text-white/50">Canvases</h2>
+          <h2 className="text-[14px] font-medium text-white/60">Canvases</h2>
           <button
             type="button"
             onClick={handleCreate}
@@ -171,11 +174,14 @@ export default function HomePage() {
                 key={ws.id}
                 onDoubleClick={() => handleOpenWorkspace(ws.id)}
                 onContextMenu={(e) => handleContext(e, ws.id)}
-                className="group relative rounded-xl bg-[#1a1c20] border border-white/[0.04] p-4 cursor-pointer hover:border-accent/30 hover:bg-[#1e2026] transition-all duration-200"
+                className="group relative rounded-xl bg-[#1a1c20] p-4 cursor-pointer hover:border-accent/30 hover:bg-[#1e2026] transition-all duration-200"
+                style={{ border: isLight ? "1px solid rgba(0,0,0,0.12)" : "1px solid rgba(255,255,255,0.06)" }}
               >
                 {/* Canvas preview */}
-                <div className="flex items-center justify-center h-20 rounded-lg bg-[#14161a] border border-white/[0.03] mb-3 overflow-hidden">
-                  <div className="grid grid-cols-3 gap-1 p-3 opacity-30">
+                <div className="flex items-center justify-center h-20 rounded-lg bg-[#14161a] border border-white/[0.03] mb-3 overflow-hidden"
+                  style={isLight ? { borderColor: "rgba(0,0,0,0.08)" } : undefined}
+                >
+                  <div className={`grid grid-cols-3 gap-1 p-3 ${isLight ? "opacity-50" : "opacity-30"}`}>
                     <div className="w-6 h-4 rounded-sm bg-accent/20" />
                     <div className="w-6 h-6 rounded-sm bg-purple-500/20" />
                     <div className="w-6 h-3 rounded-sm bg-green-500/20" />
@@ -195,14 +201,15 @@ export default function HomePage() {
                       if (e.key === "Enter") commitRename();
                       if (e.key === "Escape") setRenamingId(null);
                     }}
-                    className="w-full bg-transparent border-b border-accent text-[13px] text-white focus:outline-none pb-0.5"
+                    className="w-full bg-transparent border-b border-accent text-[13px] focus:outline-none pb-0.5"
+                    style={{ color: isLight ? "rgba(44,44,46,0.95)" : "rgba(255,255,255,0.95)" }}
                   />
                 ) : (
-                  <p className="text-[13px] font-medium text-white/80 truncate">
+                  <p className="text-[13px] font-medium truncate" style={{ color: isLight ? "rgba(44,44,46,0.9)" : "rgba(255,255,255,0.9)" }}>
                     {ws.name}
                   </p>
                 )}
-                <p className="text-[10px] text-white/20 mt-1">
+                <p className="text-[10px] mt-1" style={{ color: isLight ? "rgba(44,44,46,0.5)" : "rgba(255,255,255,0.4)" }}>
                   {new Date(ws.updatedAt).toLocaleDateString()}
                 </p>
 
@@ -331,6 +338,16 @@ export default function HomePage() {
         error={pwError}
         onSubmit={handlePasswordSubmit}
         onCancel={() => {
+          setPwModal({ open: false, mode: "set", wsId: "" });
+          setPwError("");
+        }}
+        onBiometricSuccess={() => {
+          // Biometric succeeded — perform the same action as correct password
+          if (pwModal.mode === "enter") {
+            openWorkspace(pwModal.wsId);
+          } else if (pwModal.mode === "unlock") {
+            unlockWorkspace(pwModal.wsId);
+          }
           setPwModal({ open: false, mode: "set", wsId: "" });
           setPwError("");
         }}

@@ -2,12 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---- Theme CSS Custom Properties ---- */
+:root {
+  --surface-body: #1a1a1e;
+  --surface-canvas: #121214;
+  --surface-card: #2a2c30;
+  --surface-panel: #1e2026;
+  --surface-input: #14161a;
+  --surface-elevated: #252730;
+  --canvas-dot: rgba(255, 255, 255, 0.13);
+  --gradient-top: rgba(18, 18, 20, 0.9);
+  --note-default-bg: #2a2c30;
+  --card-border: rgba(255, 255, 255, 0.06);
+  --selection-border: rgba(255, 255, 255, 0.8);
+  --selection-border-dashed: rgba(255, 255, 255, 0.7);
+  --toolbar-bg: rgba(30, 32, 38, 0.95);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --shade-bg: rgba(255, 255, 255, 0.10);
+  --text-cell: rgba(255, 255, 255, 0.7);
+  --connector-default: rgba(255, 255, 255, 0.15);
+}
+
+.light {
+  --surface-body: #eeeff3;
+  --surface-canvas: #e4e5ea;
+  --surface-card: #ffffff;
+  --surface-panel: #f4f4f7;
+  --surface-input: #e8e9ed;
+  --surface-elevated: #ffffff;
+  --canvas-dot: rgba(0, 0, 0, 0.15);
+  --gradient-top: rgba(228, 229, 234, 0.92);
+  --note-default-bg: #ffffff;
+  --card-border: rgba(0, 0, 0, 0.18);
+  --selection-border: rgba(0, 0, 0, 0.65);
+  --selection-border-dashed: rgba(0, 0, 0, 0.55);
+  --toolbar-bg: rgba(244, 244, 247, 0.96);
+  --border-subtle: rgba(0, 0, 0, 0.16);
+  --border-strong: rgba(0, 0, 0, 0.30);
+  --shade-bg: rgba(0, 0, 0, 0.06);
+  --text-cell: rgba(0, 0, 0, 0.82);
+  --connector-default: rgba(44, 44, 46, 0.75);
+}
+
 *,
 *::before,
 *::after {
   -webkit-user-select: none;
   user-select: none;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
 input,
@@ -24,9 +68,9 @@ textarea,
   overflow: hidden;
 }
 
-/* ---- Canvas background (dark, dots rendered dynamically via inline style) ---- */
+/* ---- Canvas background ---- */
 .canvas-bg {
-  background-color: #121214;
+  background-color: var(--surface-canvas);
 }
 
 /* ---- Card transitions ---- */
@@ -38,9 +82,14 @@ textarea,
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
-  background: #1a1a1e;
+  background: var(--surface-body);
   color: #e0e0e0;
   overflow: hidden;
+}
+
+.light body,
+body:is(.light *) {
+  color: #2c2c2e;
 }
 
 /* ---- Scrollbar ---- */
@@ -60,6 +109,14 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+
+.light ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.16);
 }
 
 /* ---- Hidden scrollbar utility ---- */
@@ -83,3 +140,110 @@ body {
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
+
+.light .glass-panel {
+  background: rgba(244, 244, 247, 0.9);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* ================================================================
+   LIGHT MODE — Tailwind class overrides
+   ================================================================
+   These rules flip white-based Tailwind utilities to dark equivalents
+   when the .light class is on <html>. */
+
+/* ---- Text color overrides ---- */
+.light .text-white { color: #2c2c2e !important; }
+.light .text-white\/95 { color: rgba(44, 44, 46, 0.96) !important; }
+.light .text-white\/90 { color: rgba(44, 44, 46, 0.92) !important; }
+.light .text-white\/85 { color: rgba(44, 44, 46, 0.9) !important; }
+.light .text-white\/80 { color: rgba(44, 44, 46, 0.85) !important; }
+.light .text-white\/75 { color: rgba(44, 44, 46, 0.82) !important; }
+.light .text-white\/70 { color: rgba(44, 44, 46, 0.8) !important; }
+.light .text-white\/60 { color: rgba(44, 44, 46, 0.72) !important; }
+.light .text-white\/50 { color: rgba(44, 44, 46, 0.68) !important; }
+.light .text-white\/45 { color: rgba(44, 44, 46, 0.65) !important; }
+.light .text-white\/40 { color: rgba(44, 44, 46, 0.62) !important; }
+.light .text-white\/35 { color: rgba(44, 44, 46, 0.58) !important; }
+.light .text-white\/30 { color: rgba(44, 44, 46, 0.55) !important; }
+.light .text-white\/25 { color: rgba(44, 44, 46, 0.5) !important; }
+.light .text-white\/20 { color: rgba(44, 44, 46, 0.48) !important; }
+.light .text-white\/18 { color: rgba(44, 44, 46, 0.45) !important; }
+.light .text-white\/15 { color: rgba(44, 44, 46, 0.4) !important; }
+
+/* ---- Hover text overrides ---- */
+.light .hover\:text-white\/90:hover { color: rgba(44, 44, 46, 0.92) !important; }
+.light .hover\:text-white\/80:hover { color: rgba(44, 44, 46, 0.85) !important; }
+.light .hover\:text-white\/75:hover { color: rgba(44, 44, 46, 0.82) !important; }
+.light .hover\:text-white\/70:hover { color: rgba(44, 44, 46, 0.8) !important; }
+.light .hover\:text-white\/60:hover { color: rgba(44, 44, 46, 0.72) !important; }
+.light .hover\:text-white\/50:hover { color: rgba(44, 44, 46, 0.62) !important; }
+.light .hover\:text-white\/45:hover { color: rgba(44, 44, 46, 0.58) !important; }
+
+/* ---- Background color overrides ---- */
+.light .bg-white\/5 { background-color: rgb(0 0 0 / 0.03) !important; }
+.light .bg-white\/\[0\.04\] { background-color: rgb(0 0 0 / 0.03) !important; }
+.light .bg-white\/\[0\.05\] { background-color: rgb(0 0 0 / 0.04) !important; }
+.light .bg-white\/\[0\.06\] { background-color: rgb(0 0 0 / 0.04) !important; }
+.light .bg-white\/\[0\.08\] { background-color: rgb(0 0 0 / 0.06) !important; }
+.light .bg-white\/\[0\.1\] { background-color: rgb(0 0 0 / 0.07) !important; }
+.light .bg-white\/\[0\.12\] { background-color: rgb(0 0 0 / 0.08) !important; }
+.light .bg-white\/8 { background-color: rgb(0 0 0 / 0.06) !important; }
+.light .bg-white\/6 { background-color: rgb(0 0 0 / 0.04) !important; }
+
+/* ---- Hover background overrides ---- */
+.light .hover\:bg-white\/5:hover { background-color: rgb(0 0 0 / 0.04) !important; }
+.light .hover\:bg-white\/\[0\.04\]:hover { background-color: rgb(0 0 0 / 0.03) !important; }
+.light .hover\:bg-white\/\[0\.05\]:hover { background-color: rgb(0 0 0 / 0.04) !important; }
+.light .hover\:bg-white\/\[0\.06\]:hover { background-color: rgb(0 0 0 / 0.05) !important; }
+.light .hover\:bg-white\/\[0\.08\]:hover { background-color: rgb(0 0 0 / 0.06) !important; }
+.light .hover\:bg-white\/\[0\.1\]:hover { background-color: rgb(0 0 0 / 0.07) !important; }
+
+/* ---- Active background overrides ---- */
+.light .active\:bg-white\/\[0\.1\]:active { background-color: rgb(0 0 0 / 0.07) !important; }
+
+/* ---- Border overrides ---- */
+.light .border-white\/\[0\.03\] { border-color: rgba(44, 44, 46, 0.1) !important; }
+.light .border-white\/\[0\.04\] { border-color: rgba(44, 44, 46, 0.12) !important; }
+.light .border-white\/\[0\.05\] { border-color: rgba(44, 44, 46, 0.14) !important; }
+.light .border-white\/\[0\.06\] { border-color: rgba(44, 44, 46, 0.14) !important; }
+.light .border-white\/\[0\.08\] { border-color: rgba(44, 44, 46, 0.16) !important; }
+.light .border-white\/25 { border-color: rgba(44, 44, 46, 0.28) !important; }
+
+/* ---- Hover border overrides ---- */
+.light .hover\:border-white\/45:hover { border-color: rgb(0 0 0 / 0.35) !important; }
+
+/* ---- Divide/separator overrides ---- */
+.light .bg-white\/\[0\.06\] { background-color: rgb(0 0 0 / 0.06) !important; }
+.light .bg-white\/\[0\.04\] { background-color: rgb(0 0 0 / 0.04) !important; }
+
+/* ---- Hardcoded hex background overrides ---- */
+.light .bg-\[\#111214\] { background-color: var(--surface-body) !important; }
+.light .bg-\[\#1a1c20\] { background-color: #c8c9ce !important; }
+.light .bg-\[\#1e2026\] { background-color: var(--surface-panel) !important; }
+.light .bg-\[\#14161a\] { background-color: var(--surface-body) !important; }
+.light .bg-\[\#252730\] { background-color: var(--surface-elevated) !important; }
+.light .bg-\[\#1e2026\]\/95 { background-color: rgba(255, 255, 255, 0.95) !important; }
+
+/* Hover variants for hex backgrounds */
+.light .hover\:bg-\[\#1e2026\]:hover { background-color: #d0d1d6 !important; }
+.light .hover\:bg-\[\#282a32\]\/95:hover { background-color: rgba(0, 0, 0, 0.04) !important; }
+
+/* ---- Graphite palette overrides ---- */
+.light .bg-graphite-800 { background-color: #fafafa !important; }
+.light .bg-graphite-900 { background-color: #e8e9ed !important; }
+.light .bg-graphite-700 { background-color: #e4e5ea !important; }
+.light .text-graphite-300 { color: rgba(44, 44, 46, 0.6) !important; }
+.light .text-graphite-500 { color: rgba(44, 44, 46, 0.4) !important; }
+.light .hover\:text-white:hover { color: #2c2c2e !important; }
+.light .hover\:bg-graphite-700:hover { background-color: #edeef1 !important; }
+.light .placeholder\:text-graphite-500::placeholder { color: rgba(44, 44, 46, 0.38) !important; }
+.light .placeholder\:text-white\/18::placeholder { color: rgba(44, 44, 46, 0.35) !important; }
+.light .placeholder\:text-white\/20::placeholder { color: rgba(44, 44, 46, 0.32) !important; }
+.light .placeholder\:text-white\/25::placeholder { color: rgba(44, 44, 46, 0.35) !important; }
+
+/* ---- SVG stroke/currentColor inherits from text color — handled automatically ---- */
+
+/* ---- Opacity-based class overrides for group-hover ---- */
+.light .group-hover\/item\:opacity-50 { opacity: 0.5; }
+.light .hover\:\!opacity-100:hover { opacity: 1 !important; }

@@ -3,6 +3,7 @@ import React from "react";
 import BreadcrumbNav from "@/features/navigation/BreadcrumbNav";
 import InfiniteCanvas from "@/features/canvas/InfiniteCanvas";
 import ZoomBar from "@/features/canvas/ZoomBar";
+import ThemeToggle from "@/features/canvas/ThemeToggle";
 
 export default function LegacyCanvasShell() {
   return (
@@ -10,6 +11,7 @@ export default function LegacyCanvasShell() {
       <div className="flex-1 min-h-0 relative">
         <InfiniteCanvas />
         <BreadcrumbNav />
+        <ThemeToggle />
         <ZoomBar />
       </div>
     </div>

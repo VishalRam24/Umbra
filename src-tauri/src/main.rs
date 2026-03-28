@@ -5,6 +5,78 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+// ---------- macOS Biometric (Touch ID) ----------
+#[cfg(target_os = "macos")]
+mod biometric {
+    use objc::runtime::{Object, BOOL, YES};
+    use objc::{class, msg_send, sel, sel_impl};
+    use std::sync::mpsc;
+
+    #[link(name = "LocalAuthentication", kind = "framework")]
+    extern "C" {}
+
+    /// Check if biometric authentication (Touch ID) is available.
+    pub fn is_available() -> bool {
+        unsafe {
+            let context: *mut Object = msg_send![class!(LAContext), new];
+            let mut error: *mut Object = std::ptr::null_mut();
+            // LAPolicyDeviceOwnerAuthenticationWithBiometrics = 1
+            let available: BOOL = msg_send![context, canEvaluatePolicy:1i64 error:&mut error];
+            let _: () = msg_send![context, release];
+            available == YES
+        }
+    }
+
+    /// Prompt Touch ID and return true if authentication succeeded.
+    pub fn authenticate(reason: &str) -> Result<bool, String> {
+        unsafe {
+            let context: *mut Object = msg_send![class!(LAContext), new];
+            let mut error: *mut Object = std::ptr::null_mut();
+            let available: BOOL = msg_send![context, canEvaluatePolicy:1i64 error:&mut error];
+            if available != YES {
+                let _: () = msg_send![context, release];
+                return Err("Biometric authentication not available on this device".into());
+            }
+
+            // Build NSString for the reason
+            let reason_nsstring: *mut Object = {
+                let s: *mut Object = msg_send![class!(NSString), alloc];
+                msg_send![s, initWithBytes:reason.as_ptr()
+                             length:reason.len()
+                             encoding:4u64] // NSUTF8StringEncoding
+            };
+
+            let (tx, rx) = mpsc::channel::<bool>();
+
+            // Objective-C block: void (^)(BOOL success, NSError *error)
+            let block = block::ConcreteBlock::new(move |success: BOOL, _err: *mut Object| {
+                let _ = tx.send(success == YES);
+            });
+            let block = block.copy();
+
+            // evaluatePolicy:localizedReason:reply:
+            let _: () = msg_send![context,
+                evaluatePolicy:1i64
+                localizedReason:reason_nsstring
+                reply:&*block
+            ];
+
+            let result = rx.recv().map_err(|e| e.to_string())?;
+            let _: () = msg_send![reason_nsstring, release];
+            let _: () = msg_send![context, release];
+            Ok(result)
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod biometric {
+    pub fn is_available() -> bool { false }
+    pub fn authenticate(_reason: &str) -> Result<bool, String> {
+        Err("Biometric authentication is only available on macOS".into())
+    }
+}
+
 fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
     let base = app
         .path()
@@ -228,6 +300,19 @@ fn copy_asset_to_path(
     Err("Asset not found".to_string())
 }
 
+#[tauri::command]
+fn biometric_available() -> bool {
+    biometric::is_available()
+}
+
+#[tauri::command]
+async fn biometric_authenticate(reason: String) -> Result<bool, String> {
+    // Run on a blocking thread because the ObjC call waits for user interaction
+    tokio::task::spawn_blocking(move || biometric::authenticate(&reason))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 fn main() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
@@ -242,6 +327,8 @@ fn main() {
             open_file_external,
             copy_asset_to_path,
             fetch_link_meta,
+            biometric_available,
+            biometric_authenticate,
         ]);
 
     #[cfg(debug_assertions)]

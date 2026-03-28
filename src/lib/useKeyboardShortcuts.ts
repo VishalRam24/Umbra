@@ -1,8 +1,19 @@
 import { useEffect } from "react";
 import { useBoardStore } from "@/store/useBoardStore";
+import type { ElementType } from "@/types/elements";
 
 /** Max time between two spacebar presses to count as double-tap (ms) */
 const DOUBLE_SPACE_THRESHOLD = 350;
+
+/** Single-key → element type mappings (active when not editing text) */
+const ELEMENT_KEYS: Record<string, ElementType> = {
+  n: "note",
+  t: "text",
+  b: "board",
+  g: "table",
+  l: "link",
+  f: "checklist",
+};
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
@@ -45,9 +56,12 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Escape — deselect
+      // Escape — deselect, exit modes, cancel pending element
       if (e.key === "Escape") {
         s.setSelectedElement(null);
+        s.setPendingElementType(null);
+        s.setDrawingMode(false);
+        s.setConnectMode(false);
         if (document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
         }
@@ -72,6 +86,13 @@ export function useKeyboardShortcuts() {
       if (meta && e.key === "v" && !isEditing) {
         e.preventDefault();
         s.pasteClipboard();
+        return;
+      }
+
+      // Cmd+G — group selected into a board
+      if (meta && e.key === "g" && !isEditing) {
+        e.preventDefault();
+        s.groupIntoBoard();
         return;
       }
 
@@ -132,6 +153,66 @@ export function useKeyboardShortcuts() {
       if (meta && e.key === "z" && e.shiftKey) {
         e.preventDefault();
         s.redo();
+        return;
+      }
+
+      // --- Single-key shortcuts (only when not editing and no meta key) ---
+      if (isEditing || meta) return;
+
+      const key = e.key.toLowerCase();
+
+      // V — select mode: deselect, exit all modes
+      if (key === "v") {
+        e.preventDefault();
+        s.setSelectedElement(null);
+        s.setPendingElementType(null);
+        s.setDrawingMode(false);
+        s.setConnectMode(false);
+        s.setSelectedConnector(null);
+        return;
+      }
+
+      // C — connect mode
+      if (key === "c") {
+        e.preventDefault();
+        s.setConnectMode(!s.connectMode);
+        s.setPendingElementType(null);
+        return;
+      }
+
+      // D — drawing mode
+      if (key === "d") {
+        e.preventDefault();
+        s.setDrawingMode(!s.drawingMode);
+        s.setPendingElementType(null);
+        return;
+      }
+
+      // [ — send backward
+      if (key === "[") {
+        e.preventDefault();
+        if (s.selectedElementIds.length === 1) {
+          s.sendBackward(s.selectedElementIds[0]);
+        }
+        return;
+      }
+
+      // ] — bring forward
+      if (key === "]") {
+        e.preventDefault();
+        if (s.selectedElementIds.length === 1) {
+          s.bringForward(s.selectedElementIds[0]);
+        }
+        return;
+      }
+
+      // Element creation keys: N, T, B, G, L, F
+      const elementType = ELEMENT_KEYS[key];
+      if (elementType) {
+        e.preventDefault();
+        s.setDrawingMode(false);
+        s.setConnectMode(false);
+        s.setPendingElementType(elementType);
         return;
       }
     };

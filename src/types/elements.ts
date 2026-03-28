@@ -38,11 +38,16 @@ export interface BoardElement {
   linkToId?: string | null;
   linkFromSide?: "top" | "right" | "bottom" | "left" | null;
   linkToSide?: "top" | "right" | "bottom" | "left" | null;
+  /** Anchor ID for checklist per-item connectors (e.g. "item-0") */
+  linkFromAnchorId?: string | null;
+  linkToAnchorId?: string | null;
   connectorMode?: ConnectorMode | null;
   /** Connector line color */
   connectorColor?: string;
   /** Connector line thickness */
   connectorThickness?: number;
+  /** Whether to show arrowhead at destination (default: true) */
+  showArrowhead?: boolean;
   assetPath?: string;
   assetLocalPath?: string;
   mimeType?: string;
@@ -76,6 +81,8 @@ export interface BoardElement {
   linkDescription?: string;
   linkImage?: string;
   linkFavicon?: string;
+  /** Z-order index — higher renders on top */
+  zIndex?: number;
   createdAt: number;
 }
 
@@ -87,6 +94,20 @@ export const NOTE_COLORS: Record<string, { bg: string; bar: string; text: string
   blue:    { bg: "#222835", bar: "#4a8fe7", text: "rgba(200,220,255,0.85)" },
   green:   { bg: "#223028", bar: "#3fba6a", text: "rgba(210,255,220,0.85)" },
 };
+
+/** Note color palette (light mode) */
+export const NOTE_COLORS_LIGHT: Record<string, { bg: string; bar: string; text: string }> = {
+  default: { bg: "#ffffff", bar: "rgba(44,44,46,0.14)", text: "#3a3a3c" },
+  yellow:  { bg: "#fdf6dc", bar: "#c8961e", text: "#4a3800" },
+  pink:    { bg: "#fce8f0", bar: "#d14a8e", text: "#5a0f32" },
+  blue:    { bg: "#e6eefa", bar: "#3a7fd6", text: "#0f235a" },
+  green:   { bg: "#e4f7ea", bar: "#2ea55a", text: "#083219" },
+};
+
+/** Get the right note color palette based on theme */
+export function getNoteColors(theme: "dark" | "light"): Record<string, { bg: string; bar: string; text: string }> {
+  return theme === "light" ? NOTE_COLORS_LIGHT : NOTE_COLORS;
+}
 
 export const GRID_SIZE = 10;
 
