@@ -49,7 +49,11 @@ interface BoardState {
   connectorStyle: "straight" | "orthogonal" | "curve";
   connectorColor: string;
   connectorThickness: number;
+  connectorShowArrowhead: boolean;
   selectedConnectorId: string | null;
+
+  /** Pending element type — set by keyboard shortcut, consumed on next canvas click */
+  pendingElementType: ElementType | null;
 
   /** Currently selected table cell (shared so settings panel can target it) */
   selectedTableCell: { r: number; c: number } | null;
@@ -96,8 +100,14 @@ interface BoardState {
   setConnectorStyle: (style: "straight" | "orthogonal" | "curve") => void;
   setConnectorColor: (color: string) => void;
   setConnectorThickness: (thickness: number) => void;
+  setConnectorShowArrowhead: (show: boolean) => void;
   setSelectedConnector: (id: string | null) => void;
-  createConnector: (fromId: string, fromSide: string, toId: string, toSide: string) => string | null;
+  createConnector: (fromId: string, fromSide: string, toId: string, toSide: string, fromAnchorId?: string | null, toAnchorId?: string | null) => string | null;
+
+  setPendingElementType: (type: ElementType | null) => void;
+  sendBackward: (id: string) => void;
+  bringForward: (id: string) => void;
+  groupIntoBoard: () => void;
 
   restoreFromTrash: (index: number) => void;
   clearTrash: () => void;
@@ -165,6 +175,7 @@ export const useBoardStore = create<BoardState>()(
     clipboard: [],
     viewport: { x: 0, y: 0, scale: 1 },
     trash: [],
+    pendingElementType: null,
     drawingMode: false,
     drawingColor: "#ffffff",
     drawingThickness: 2,
@@ -172,8 +183,9 @@ export const useBoardStore = create<BoardState>()(
     redoStack: [],
     connectMode: false,
     connectorStyle: "straight" as const,
-    connectorColor: "rgba(255,255,255,0.15)",
-    connectorThickness: 1.5,
+    connectorColor: "",
+    connectorThickness: 2.5,
+    connectorShowArrowhead: true,
     selectedConnectorId: null,
     selectedTableCell: null,
     view: "home",
@@ -644,6 +656,21 @@ export const useBoardStore = create<BoardState>()(
       setTimeout(() => saveState(get()), 0);
     },
 
+    setConnectorShowArrowhead: (show) => {
+      set((s) => {
+        s.connectorShowArrowhead = show;
+        if (s.selectedConnectorId) {
+          const el = s.elements[s.selectedConnectorId];
+          if (el && el.type === "arrow") el.showArrowhead = show;
+        }
+        for (const id of s.selectedElementIds) {
+          const el = s.elements[id];
+          if (el && el.type === "arrow") el.showArrowhead = show;
+        }
+      });
+      setTimeout(() => saveState(get()), 0);
+    },
+
     setSelectedConnector: (id) => {
       set((s) => {
         s.selectedConnectorId = id;
@@ -654,6 +681,7 @@ export const useBoardStore = create<BoardState>()(
             if (el.connectorMode) s.connectorStyle = el.connectorMode;
             if (el.connectorColor) s.connectorColor = el.connectorColor;
             if (el.connectorThickness) s.connectorThickness = el.connectorThickness;
+            s.connectorShowArrowhead = el.showArrowhead !== false;
           }
           s.connectMode = true;
           s.drawingMode = false;
@@ -663,7 +691,7 @@ export const useBoardStore = create<BoardState>()(
       });
     },
 
-    createConnector: (fromId, fromSide, toId, toSide) => {
+    createConnector: (fromId, fromSide, toId, toSide, fromAnchorId, toAnchorId) => {
       const s = get();
       if (!s.activeWorkspaceId || !s.currentBoardId) return null;
       if (fromId === toId) return null;
@@ -690,9 +718,12 @@ export const useBoardStore = create<BoardState>()(
           linkToId: toId,
           linkFromSide: fromSide as any,
           linkToSide: toSide as any,
+          linkFromAnchorId: fromAnchorId || null,
+          linkToAnchorId: toAnchorId || null,
           connectorMode: st.connectorStyle,
           connectorColor: st.connectorColor,
           connectorThickness: st.connectorThickness,
+          showArrowhead: st.connectorShowArrowhead,
           createdAt: now,
         };
         const w = st.workspaces[st.activeWorkspaceId!];
@@ -700,6 +731,101 @@ export const useBoardStore = create<BoardState>()(
       });
       setTimeout(() => saveState(get()), 0);
       return id;
+    },
+
+    setPendingElementType: (type) => {
+      set((s) => {
+        s.pendingElementType = type;
+        if (type) {
+          s.drawingMode = false;
+          s.connectMode = false;
+        }
+      });
+    },
+
+    sendBackward: (id) => {
+      const s = get();
+      const el = s.elements[id];
+      if (!el) return;
+      get().pushUndo();
+      const siblings = Object.values(s.elements)
+        .filter((e) => e.parentBoardId === el.parentBoardId && e.type !== "arrow")
+        .sort((a, b) => (a.zIndex ?? a.createdAt) - (b.zIndex ?? b.createdAt));
+      const idx = siblings.findIndex((e) => e.id === id);
+      if (idx <= 0) return;
+      set((st) => {
+        // Swap zIndex with the element below
+        const belowId = siblings[idx - 1].id;
+        const belowZ = st.elements[belowId].zIndex ?? st.elements[belowId].createdAt;
+        const curZ = st.elements[id].zIndex ?? st.elements[id].createdAt;
+        st.elements[id].zIndex = belowZ;
+        st.elements[belowId].zIndex = curZ;
+      });
+      setTimeout(() => saveState(get()), 0);
+    },
+
+    bringForward: (id) => {
+      const s = get();
+      const el = s.elements[id];
+      if (!el) return;
+      get().pushUndo();
+      const siblings = Object.values(s.elements)
+        .filter((e) => e.parentBoardId === el.parentBoardId && e.type !== "arrow")
+        .sort((a, b) => (a.zIndex ?? a.createdAt) - (b.zIndex ?? b.createdAt));
+      const idx = siblings.findIndex((e) => e.id === id);
+      if (idx < 0 || idx >= siblings.length - 1) return;
+      set((st) => {
+        const aboveId = siblings[idx + 1].id;
+        const aboveZ = st.elements[aboveId].zIndex ?? st.elements[aboveId].createdAt;
+        const curZ = st.elements[id].zIndex ?? st.elements[id].createdAt;
+        st.elements[id].zIndex = aboveZ;
+        st.elements[aboveId].zIndex = curZ;
+      });
+      setTimeout(() => saveState(get()), 0);
+    },
+
+    groupIntoBoard: () => {
+      const s = get();
+      if (s.selectedElementIds.length === 0 || !s.currentBoardId) return;
+      get().pushUndo();
+      const selected = s.selectedElementIds
+        .map((id) => s.elements[id])
+        .filter((e) => e && e.type !== "arrow");
+      if (selected.length === 0) return;
+      // Compute bounding box of selected elements
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const el of selected) {
+        minX = Math.min(minX, el.position.x);
+        minY = Math.min(minY, el.position.y);
+        maxX = Math.max(maxX, el.position.x + el.width);
+        maxY = Math.max(maxY, el.position.y + el.height);
+      }
+      const boardId = generateId();
+      const now = Date.now();
+      set((st) => {
+        // Create a new board element at the bounding box position
+        st.elements[boardId] = {
+          id: boardId,
+          type: "board",
+          parentBoardId: st.currentBoardId!,
+          position: { x: minX - 20, y: minY - 40 },
+          content: "Group",
+          width: maxX - minX + 40,
+          height: maxY - minY + 60,
+          createdAt: now,
+        };
+        // Move selected elements into the new board, adjust positions to be relative
+        for (const el of selected) {
+          st.elements[el.id].parentBoardId = boardId;
+          st.elements[el.id].position = {
+            x: el.position.x - minX + 20,
+            y: el.position.y - minY + 20,
+          };
+        }
+        st.selectedElementId = boardId;
+        st.selectedElementIds = [boardId];
+      });
+      setTimeout(() => saveState(get()), 0);
     },
 
     restoreFromTrash: (index) => {

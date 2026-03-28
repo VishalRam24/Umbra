@@ -83,4 +83,24 @@ export async function saveAssetAs(assetLocalPath: string, defaultFileName: strin
   }
 }
 
+/** Check if Touch ID / biometric auth is available on this device. */
+export async function biometricAvailable(): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    return await invoke<boolean>("biometric_available");
+  } catch {
+    return false;
+  }
+}
+
+/** Prompt the user for Touch ID authentication. Returns true if succeeded. */
+export async function biometricAuthenticate(reason: string): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    return await invoke<boolean>("biometric_authenticate", { reason });
+  } catch {
+    return false;
+  }
+}
+
 export { isTauri };

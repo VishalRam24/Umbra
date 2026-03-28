@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+npm run version:minor
+
+git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json

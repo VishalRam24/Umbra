@@ -24,6 +24,12 @@ export default function ElementSettingsPanel({ element, onBack }: Props) {
   const updateElement = useBoardStore((s) => s.updateElement);
   const deleteSelected = useBoardStore((s) => s.deleteSelected);
   const selectedTableCell = useBoardStore((s) => s.selectedTableCell);
+  const isLight = useBoardStore((s) => (s.userSettings.theme || "dark") === "light");
+  // Theme-aware inline color helpers
+  const textHigh = isLight ? "rgba(44,44,46,0.9)" : "rgba(255,255,255,0.9)";
+  const textLow = isLight ? "rgba(44,44,46,0.25)" : "rgba(255,255,255,0.22)";
+  const bgActive = isLight ? "rgba(44,44,46,0.08)" : "rgba(255,255,255,0.06)";
+  const textMid = isLight ? "rgba(44,44,46,0.8)" : "rgba(255,255,255,0.8)";
 
   const colorKey = element.color || "default";
   const isNote = element.type === "note" || element.type === "document" || element.type === "comment";
@@ -70,7 +76,7 @@ export default function ElementSettingsPanel({ element, onBack }: Props) {
                   onClick={() => updateElement(element.id, { color: key })}
                   className="w-[16px] h-[16px] rounded-full border-[1.5px] hover:scale-125 transition-transform"
                   style={{
-                    backgroundColor: val.bar === "rgba(255,255,255,0.08)" ? "#3a3c40" : val.bar,
+                    backgroundColor: val.bar === "rgba(255,255,255,0.08)" ? "var(--surface-card)" : val.bar,
                     borderColor: colorKey === key ? "#fff" : "transparent",
                   }}
                   title={key}
@@ -104,8 +110,8 @@ export default function ElementSettingsPanel({ element, onBack }: Props) {
                 className="flex items-center justify-center w-10 h-8 rounded-md hover:bg-white/[0.06] transition-colors"
                 title="Align left"
                 style={{
-                  color: (element.noteTextAlign || "left") === "left" ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.22)",
-                  backgroundColor: (element.noteTextAlign || "left") === "left" ? "rgba(255,255,255,0.06)" : undefined,
+                  color: (element.noteTextAlign || (element.type === "text" ? "center" : "left")) === "left" ? textHigh : textLow,
+                  backgroundColor: (element.noteTextAlign || (element.type === "text" ? "center" : "left")) === "left" ? bgActive : undefined,
                 }}
               >
                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
@@ -120,8 +126,8 @@ export default function ElementSettingsPanel({ element, onBack }: Props) {
                 className="flex items-center justify-center w-10 h-8 rounded-md hover:bg-white/[0.06] transition-colors"
                 title="Align center"
                 style={{
-                  color: element.noteTextAlign === "center" ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.22)",
-                  backgroundColor: element.noteTextAlign === "center" ? "rgba(255,255,255,0.06)" : undefined,
+                  color: (element.noteTextAlign || (element.type === "text" ? "center" : "left")) === "center" ? textHigh : textLow,
+                  backgroundColor: (element.noteTextAlign || (element.type === "text" ? "center" : "left")) === "center" ? bgActive : undefined,
                 }}
               >
                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
@@ -141,7 +147,7 @@ export default function ElementSettingsPanel({ element, onBack }: Props) {
                   type="button"
                   onClick={() => updateElement(element.id, { textFontSize: sz })}
                   className="flex items-center justify-center w-10 h-7 rounded-md text-[11px] hover:bg-white/[0.06] transition-colors"
-                  style={{ opacity: (element.textFontSize || 24) === sz ? 1 : 0.35, color: "rgba(255,255,255,0.8)" }}
+                  style={{ opacity: (element.textFontSize || 24) === sz ? 1 : 0.35, color: textMid }}
                 >
                   {sz}
                 </button>
@@ -342,6 +348,10 @@ function FormatBtn({
   active?: boolean;
   onClick?: () => void;
 }) {
+  const isLight = useBoardStore((s) => (s.userSettings.theme || "dark") === "light");
+  const activeColor = isLight ? "rgba(44,44,46,0.9)" : "rgba(255,255,255,0.9)";
+  const inactiveColor = isLight ? "rgba(44,44,46,0.25)" : "rgba(255,255,255,0.22)";
+  const activeBg = isLight ? "rgba(44,44,46,0.08)" : "rgba(255,255,255,0.06)";
   return (
     <button
       type="button"
@@ -351,8 +361,8 @@ function FormatBtn({
       style={{
         fontStyle: italic ? "italic" : undefined,
         textDecoration: strikethrough ? "line-through" : undefined,
-        color: active ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.22)",
-        backgroundColor: active ? "rgba(255,255,255,0.06)" : undefined,
+        color: active ? activeColor : inactiveColor,
+        backgroundColor: active ? activeBg : undefined,
       }}
     >
       {label}
@@ -369,14 +379,18 @@ function ToggleBtn({
   active?: boolean;
   onClick?: () => void;
 }) {
+  const isLight = useBoardStore((s) => (s.userSettings.theme || "dark") === "light");
+  const activeColor = isLight ? "rgba(44,44,46,0.9)" : "rgba(255,255,255,0.9)";
+  const inactiveColor = isLight ? "rgba(44,44,46,0.28)" : "rgba(255,255,255,0.25)";
+  const activeBg = isLight ? "rgba(44,44,46,0.08)" : "rgba(255,255,255,0.06)";
   return (
     <button
       type="button"
       onClick={onClick}
       className="flex items-center justify-center w-10 h-8 rounded-md hover:bg-white/[0.06] transition-colors text-[10px] font-medium"
       style={{
-        color: active ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.25)",
-        backgroundColor: active ? "rgba(255,255,255,0.06)" : undefined,
+        color: active ? activeColor : inactiveColor,
+        backgroundColor: active ? activeBg : undefined,
       }}
     >
       {label}

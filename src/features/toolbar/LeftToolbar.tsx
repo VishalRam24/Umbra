@@ -19,11 +19,13 @@ const isTauri = typeof window !== "undefined" && !!(window as any).__TAURI_INTER
 
 function ToolBtn({
   label,
+  shortcut,
   elementType,
   onClick,
   children,
 }: {
   label: string;
+  shortcut?: string;
   elementType: ElementType;
   onClick: () => void;
   children: React.ReactNode;
@@ -99,7 +101,7 @@ function ToolBtn({
     <div className="relative">
       <button
         type="button"
-        title={label}
+        title={shortcut ? `${label} (${shortcut.toUpperCase()})` : label}
         draggable={!isTauri}
         onDragStart={isTauri ? (e) => e.preventDefault() : onDragStart}
         onClick={handleClick}
@@ -209,7 +211,7 @@ const CONNECTOR_STYLES: { value: "straight" | "orthogonal" | "curve"; label: str
 ];
 
 const CONNECTOR_COLORS = [
-  "rgba(255,255,255,0.15)",
+  "",
   "#4a9eff",
   "#ff4a6a",
   "#ffc44a",
@@ -219,13 +221,30 @@ const CONNECTOR_COLORS = [
 
 const CONNECTOR_THICKNESSES = [1.5, 2.5, 4, 6];
 
-function ConnectSettingsPanel({ onBack }: { onBack: () => void }) {
+function ConnectSettingsPanel({ onBack, initialStyle, initialColor, initialThickness }: {
+  onBack: () => void;
+  initialStyle?: "straight" | "orthogonal" | "curve";
+  initialColor?: string;
+  initialThickness?: number;
+}) {
   const connectorStyle = useBoardStore((s) => s.connectorStyle);
   const setConnectorStyle = useBoardStore((s) => s.setConnectorStyle);
   const connectorColor = useBoardStore((s) => s.connectorColor);
   const setConnectorColor = useBoardStore((s) => s.setConnectorColor);
   const connectorThickness = useBoardStore((s) => s.connectorThickness);
   const setConnectorThickness = useBoardStore((s) => s.setConnectorThickness);
+  const connectorShowArrowhead = useBoardStore((s) => s.connectorShowArrowhead);
+  const setConnectorShowArrowhead = useBoardStore((s) => s.setConnectorShowArrowhead);
+
+  // Sync global connector settings from selected arrow(s) on mount
+  const didSync = React.useRef(false);
+  React.useEffect(() => {
+    if (didSync.current) return;
+    didSync.current = true;
+    if (initialStyle && initialStyle !== connectorStyle) setConnectorStyle(initialStyle);
+    if (initialColor && initialColor !== connectorColor) setConnectorColor(initialColor);
+    if (initialThickness && initialThickness !== connectorThickness) setConnectorThickness(initialThickness);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -265,7 +284,7 @@ function ConnectSettingsPanel({ onBack }: { onBack: () => void }) {
               onClick={() => setConnectorColor(c)}
               className="w-[16px] h-[16px] rounded-full border-[1.5px] hover:scale-125 transition-transform"
               style={{
-                backgroundColor: c === "rgba(255,255,255,0.15)" ? "#3a3c40" : c,
+                backgroundColor: c === "" ? "var(--connector-default)" : c,
                 borderColor: connectorColor === c ? "#fff" : "transparent",
               }}
             />
@@ -288,12 +307,27 @@ function ConnectSettingsPanel({ onBack }: { onBack: () => void }) {
                 style={{
                   width: Math.min(20, 8 + t * 3),
                   height: t,
-                  backgroundColor: connectorColor,
+                  backgroundColor: connectorColor || "var(--connector-default)",
                 }}
               />
             </button>
           ))}
         </div>
+
+        <div className="w-6 my-2 h-px bg-white/[0.06]" />
+        <div className="text-[9px] uppercase tracking-wider text-white/20 mb-1">Arrow</div>
+        <button
+          type="button"
+          onClick={() => setConnectorShowArrowhead(!connectorShowArrowhead)}
+          className="flex items-center justify-center w-10 h-8 rounded-md hover:bg-white/[0.06] transition-colors"
+          style={{ opacity: connectorShowArrowhead ? 1 : 0.35 }}
+          title={connectorShowArrowhead ? "Hide arrowhead" : "Show arrowhead"}
+        >
+          <svg width={22} height={14} viewBox="0 0 22 14" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <line x1="2" y1="7" x2="14" y2="7" />
+            <polyline points="14,3 20,7 14,11" fill={connectorShowArrowhead ? "currentColor" : "none"} />
+          </svg>
+        </button>
       </div>
     </div>
   );
@@ -302,14 +336,27 @@ function ConnectSettingsPanel({ onBack }: { onBack: () => void }) {
 export default function LeftToolbar() {
   const createElement = useBoardStore((s) => s.createElement);
   const selectedElementId = useBoardStore((s) => s.selectedElementId);
+  const selectedElementIds = useBoardStore((s) => s.selectedElementIds);
   const elements = useBoardStore((s) => s.elements);
   const setSelectedElement = useBoardStore((s) => s.setSelectedElement);
+  const setSelectedElements = useBoardStore((s) => s.setSelectedElements);
   const drawingMode = useBoardStore((s) => s.drawingMode);
   const setDrawingMode = useBoardStore((s) => s.setDrawingMode);
   const connectMode = useBoardStore((s) => s.connectMode);
   const setConnectMode = useBoardStore((s) => s.setConnectMode);
+  const setConnectorStyle = useBoardStore((s) => s.setConnectorStyle);
+  const setConnectorColor = useBoardStore((s) => s.setConnectorColor);
+  const setConnectorThickness = useBoardStore((s) => s.setConnectorThickness);
 
   const selectedElement = selectedElementId ? elements[selectedElementId] : null;
+
+  // Check if any selected elements are arrows (for showing connector settings without connect mode)
+  const selectedArrows = selectedElementIds
+    .map((id) => elements[id])
+    .filter((el) => el && el.type === "arrow");
+  const hasSelectedArrows = selectedArrows.length > 0;
+  // Only arrows selected (no non-arrow elements)
+  const onlyArrowsSelected = hasSelectedArrows && selectedArrows.length === selectedElementIds.length;
 
   const toolbarRef = useRef<HTMLDivElement>(null);
 
@@ -322,12 +369,14 @@ export default function LeftToolbar() {
 
   const asideClass =
     "fixed left-2 top-1/2 -translate-y-1/2 flex flex-col w-[52px] rounded-xl z-50 transition-all duration-200 ease-in-out overflow-hidden"
-    + " bg-[#1e2026]/95 backdrop-blur-md border border-white/[0.08] shadow-2xl";
+    + " backdrop-blur-md border border-white/[0.08] shadow-2xl";
+
+  const panelBg = "var(--toolbar-bg, rgba(30,32,38,0.95))";
 
   // Connect mode — show connector style settings
   if (connectMode) {
     return (
-      <aside ref={toolbarRef} className={asideClass} style={{ maxHeight: "70vh" }}>
+      <aside ref={toolbarRef} className={asideClass} style={{ maxHeight: "70vh", backgroundColor: panelBg }}>
         <ConnectSettingsPanel onBack={() => setConnectMode(false)} />
       </aside>
     );
@@ -336,8 +385,31 @@ export default function LeftToolbar() {
   // Drawing mode — show draw settings
   if (drawingMode) {
     return (
-      <aside ref={toolbarRef} className={asideClass} style={{ maxHeight: "70vh" }}>
+      <aside ref={toolbarRef} className={asideClass} style={{ maxHeight: "70vh", backgroundColor: panelBg }}>
         <DrawSettingsPanel onBack={() => setDrawingMode(false)} />
+      </aside>
+    );
+  }
+
+  // When only arrows are selected (e.g. via marquee), show connector settings without entering connect mode
+  if (onlyArrowsSelected && !connectMode && !drawingMode) {
+    // Sync global connector settings from the first selected arrow so the panel reflects current state
+    const firstArrow = selectedArrows[0];
+    const currentStyle = firstArrow?.connectorMode || "straight";
+    const currentColor = firstArrow?.connectorColor || "";
+    const currentThickness = firstArrow?.connectorThickness || 2.5;
+
+    return (
+      <aside ref={toolbarRef} className={asideClass} style={{ maxHeight: "70vh", backgroundColor: panelBg }}>
+        <ConnectSettingsPanel
+          onBack={() => {
+            setSelectedElement(null);
+            setSelectedElements([]);
+          }}
+          initialStyle={currentStyle as "straight" | "orthogonal" | "curve"}
+          initialColor={currentColor}
+          initialThickness={currentThickness}
+        />
       </aside>
     );
   }
@@ -345,7 +417,7 @@ export default function LeftToolbar() {
   // When element is selected, show settings panel instead of tools
   if (selectedElement) {
     return (
-      <aside ref={toolbarRef} className={asideClass} style={{ maxHeight: "70vh" }}>
+      <aside ref={toolbarRef} className={asideClass} style={{ maxHeight: "70vh", backgroundColor: panelBg }}>
         <ElementSettingsPanel
           element={selectedElement}
           onBack={() => setSelectedElement(null)}
@@ -355,25 +427,25 @@ export default function LeftToolbar() {
   }
 
   return (
-    <aside ref={toolbarRef} className={asideClass} style={{ maxHeight: "70vh" }}>
+    <aside ref={toolbarRef} className={asideClass} style={{ maxHeight: "70vh", backgroundColor: panelBg }}>
       {/* Tools */}
       <div className="flex-1 min-h-0 flex flex-col items-center gap-0.5 px-1.5 py-2 overflow-y-auto scrollbar-hide">
-        <ToolBtn label="Note" elementType="note" onClick={() => add("note")}>
+        <ToolBtn label="Note" shortcut="N" elementType="note" onClick={() => add("note")}>
           <NoteIcon size={18} />
         </ToolBtn>
-        <ToolBtn label="Board" elementType="board" onClick={() => add("board")}>
+        <ToolBtn label="Board" shortcut="B" elementType="board" onClick={() => add("board")}>
           <BoardIcon size={18} />
         </ToolBtn>
-        <ToolBtn label="To-do" elementType="checklist" onClick={() => add("checklist")}>
+        <ToolBtn label="To-do" shortcut="F" elementType="checklist" onClick={() => add("checklist")}>
           <ChecklistIcon size={18} />
         </ToolBtn>
-        <ToolBtn label="Link" elementType="link" onClick={() => add("link")}>
+        <ToolBtn label="Link" shortcut="L" elementType="link" onClick={() => add("link")}>
           <LinkIcon size={18} />
         </ToolBtn>
-        <ToolBtn label="Text" elementType="text" onClick={() => add("text")}>
+        <ToolBtn label="Text" shortcut="T" elementType="text" onClick={() => add("text")}>
           <TextIcon size={18} />
         </ToolBtn>
-        <ToolBtn label="Table" elementType="table" onClick={() => add("table")}>
+        <ToolBtn label="Table" shortcut="G" elementType="table" onClick={() => add("table")}>
           <TableIcon size={18} />
         </ToolBtn>
 
@@ -383,7 +455,7 @@ export default function LeftToolbar() {
         {/* Draw mode toggle */}
         <button
           type="button"
-          title="Draw"
+          title="Draw (D)"
           onClick={() => setDrawingMode(true)}
           className="flex flex-col items-center justify-center w-10 h-12 rounded-lg text-white/35 hover:text-white/80 hover:bg-white/[0.06] active:bg-white/[0.1] transition-all gap-0.5"
         >
@@ -394,7 +466,7 @@ export default function LeftToolbar() {
         {/* Connect mode toggle */}
         <button
           type="button"
-          title="Connect"
+          title="Connect (C)"
           onClick={() => setConnectMode(true)}
           className="flex flex-col items-center justify-center w-10 h-12 rounded-lg text-white/35 hover:text-white/80 hover:bg-white/[0.06] active:bg-white/[0.1] transition-all gap-0.5"
         >

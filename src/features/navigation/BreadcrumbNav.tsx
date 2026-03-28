@@ -32,13 +32,14 @@ export default function BreadcrumbNav() {
       <div
         data-canvas-chrome="true"
         className="absolute top-0 left-0 right-0 z-50 flex items-center px-3 h-14 pointer-events-none"
-        style={{ background: "linear-gradient(to bottom, rgba(18,18,20,0.9) 0%, transparent 100%)" }}
+        style={{ background: "linear-gradient(to bottom, var(--gradient-top) 0%, transparent 100%)" }}
       >
         {/* Logo */}
         <button
           type="button"
           onClick={goHome}
-          className="flex items-center justify-center w-10 h-10 rounded-xl bg-[#1e2026]/95 backdrop-blur-md border border-white/[0.08] shadow-2xl text-white/50 hover:text-white/90 hover:bg-[#282a32]/95 active:scale-95 transition-all pointer-events-auto shrink-0"
+          className="flex items-center justify-center w-10 h-10 rounded-xl backdrop-blur-md border border-white/[0.08] shadow-2xl text-white/50 hover:text-white/90 active:scale-95 transition-all pointer-events-auto shrink-0"
+          style={{ backgroundColor: "var(--toolbar-bg)" }}
           title="Home"
         >
           <UmbraLogo size={20} />

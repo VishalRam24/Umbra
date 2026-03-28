@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import CanvasElementCard from "@/features/elements/CanvasElementCard";
 import ContextMenu from "@/features/canvas/ContextMenu";
-import { connectorPath, sideAnchor, elementRect, allAnchors } from "@/features/canvas/connectorGeometry";
+import { connectorPath, sideAnchor, elementRect, allAnchors, resolveAnchor } from "@/features/canvas/connectorGeometry";
 import type { Side } from "@/features/canvas/connectorGeometry";
 import {
   canvasDragOverAllowsDrop,
@@ -55,6 +55,52 @@ function lineIntersectsRect(
   );
 }
 
+/**
+ * Render an arrowhead pointing along the connector direction at the target point.
+ * For routed connectors (orthogonal/curve), uses toSide to determine direction.
+ * For straight connectors, uses fromPt to compute the actual line angle.
+ */
+function renderArrowhead(
+  toPt: { x: number; y: number },
+  toSide: Side,
+  lineThickness: number,
+  scale: number,
+  color: string,
+  fromPt?: { x: number; y: number },
+) {
+  const baseSize = Math.max(10, lineThickness * 4);
+  const headSize = baseSize / scale;
+
+  const tipX = toPt.x;
+  const tipY = toPt.y;
+
+  // Compute the angle the arrow points toward (direction of travel INTO the target)
+  let angle: number;
+  if (fromPt) {
+    // Straight connector: angle from the line direction (fromPt → toPt)
+    angle = Math.atan2(toPt.y - fromPt.y, toPt.x - fromPt.x);
+  } else {
+    // Routed connector: angle based on which side the connector attaches to
+    // toSide="left" means line arrives at left edge, arrow points right (+x) INTO block
+    angle = toSide === "left" ? 0 : toSide === "right" ? Math.PI : toSide === "top" ? Math.PI / 2 : -Math.PI / 2;
+  }
+
+  const spread = Math.PI / 5;
+  // The two base points of the triangle sit behind the tip along the line
+  const x1 = tipX - headSize * Math.cos(angle - spread);
+  const y1 = tipY - headSize * Math.sin(angle - spread);
+  const x2 = tipX - headSize * Math.cos(angle + spread);
+  const y2 = tipY - headSize * Math.sin(angle + spread);
+
+  return (
+    <polygon
+      points={`${tipX},${tipY} ${x1},${y1} ${x2},${y2}`}
+      fill={color}
+      style={{ pointerEvents: "none", transition: "fill 0.15s" }}
+    />
+  );
+}
+
 export default function InfiniteCanvas() {
   const viewport = useBoardStore((s) => s.viewport);
   const setViewport = useBoardStore((s) => s.setViewport);
@@ -76,12 +122,20 @@ export default function InfiniteCanvas() {
   const deleteElement = useBoardStore((s) => s.deleteElement);
   const selectedConnectorId = useBoardStore((s) => s.selectedConnectorId);
   const setSelectedConnector = useBoardStore((s) => s.setSelectedConnector);
+  const pendingElementType = useBoardStore((s) => s.pendingElementType);
+  const setPendingElementType = useBoardStore((s) => s.setPendingElementType);
+  const theme = useBoardStore((s) => s.userSettings.theme || "dark");
+  const isLight = theme === "light";
+  const selectionColor = isLight ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.85)";
+  const defaultConnectorColor = isLight ? "rgba(44,44,46,0.75)" : "rgba(255,255,255,0.15)";
 
   useKeyboardShortcuts();
 
   const visible = useMemo(() => {
     if (currentBoardId === null) return [];
-    return Object.values(elements).filter((e) => e.parentBoardId === currentBoardId);
+    return Object.values(elements)
+      .filter((e) => e.parentBoardId === currentBoardId)
+      .sort((a, b) => (a.zIndex ?? a.createdAt) - (b.zIndex ?? b.createdAt));
   }, [elements, currentBoardId]);
 
   const fitToFrame = useBoardStore((s) => s.fitToFrame);
@@ -111,9 +165,10 @@ export default function InfiniteCanvas() {
   const [connectDrag, setConnectDrag] = useState<{
     fromId: string;
     fromSide: Side;
+    fromAnchorId?: string | null;
     fromPt: { x: number; y: number };
     currentPt: { x: number; y: number };
-    snapTo: { elementId: string; side: Side; pt: { x: number; y: number } } | null;
+    snapTo: { elementId: string; side: Side; pt: { x: number; y: number }; anchorId?: string | null } | null;
   } | null>(null);
   const connectDragRef = useRef(connectDrag);
   connectDragRef.current = connectDrag;
@@ -366,8 +421,10 @@ export default function InfiniteCanvas() {
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      // Close context menu on any click
+      // Close context menu on any click — but not if clicking inside the menu itself
       if (contextMenu) {
+        const target = e.target as HTMLElement;
+        if (target.closest("[data-context-menu]")) return;
         setContextMenu(null);
         return;
       }
@@ -391,6 +448,13 @@ export default function InfiniteCanvas() {
       // Connect mode — clicking on canvas background clears connector selection
       if (connectMode && e.button === 0 && isCanvasBg) {
         setSelectedConnector(null);
+        return;
+      }
+
+      // Pending element type — click anywhere (not on an existing element) to place
+      if (pendingElementType && e.button === 0 && !target.closest("[data-canvas-element]")) {
+        createElement(pendingElementType, { x: e.clientX - (canvasRootRef.current?.getBoundingClientRect().left ?? 0), y: e.clientY - (canvasRootRef.current?.getBoundingClientRect().top ?? 0) });
+        setPendingElementType(null);
         return;
       }
 
@@ -419,7 +483,7 @@ export default function InfiniteCanvas() {
         setMarquee(rect);
       }
     },
-    [setSelectedElement, viewport.x, viewport.y, viewport.scale, contextMenu, drawingMode, connectMode],
+    [setSelectedElement, viewport.x, viewport.y, viewport.scale, contextMenu, drawingMode, connectMode, pendingElementType],
   );
 
   const onPointerMove = useCallback(
@@ -451,7 +515,7 @@ export default function InfiniteCanvas() {
             const d = Math.hypot(anchor.x - wx, anchor.y - wy);
             if (d < snapDist && d < bestDist) {
               bestDist = d;
-              snap = { elementId: el.id, side: anchor.side, pt: { x: anchor.x, y: anchor.y } };
+              snap = { elementId: el.id, side: anchor.side, pt: { x: anchor.x, y: anchor.y }, anchorId: (anchor as any).anchorId || null };
             }
           }
         }
@@ -508,7 +572,7 @@ export default function InfiniteCanvas() {
       if (connectDragRef.current) {
         const drag = connectDragRef.current;
         if (drag.snapTo) {
-          createConnector(drag.fromId, drag.fromSide, drag.snapTo.elementId, drag.snapTo.side);
+          createConnector(drag.fromId, drag.fromSide, drag.snapTo.elementId, drag.snapTo.side, drag.fromAnchorId, drag.snapTo.anchorId);
         }
         setConnectDrag(null);
         try {
@@ -656,7 +720,7 @@ export default function InfiniteCanvas() {
       e.preventDefault();
       const target = e.target as HTMLElement;
       const cardEl = target.closest("[data-canvas-element]");
-      const elementId = cardEl ? findElementIdFromDom(cardEl as HTMLElement, visible) : null;
+      const elementId = cardEl ? findElementIdFromDom(cardEl as HTMLElement) : null;
 
       if (elementId) {
         setSelectedElement(elementId);
@@ -720,10 +784,12 @@ export default function InfiniteCanvas() {
   );
 
   const arrows = visible.filter((el) => el.type === "arrow" && el.linkFromId && el.linkToId);
+  const straightArrows = arrows.filter((a) => (a.connectorMode || "straight") === "straight");
+  const routedArrows = arrows.filter((a) => (a.connectorMode || "straight") !== "straight");
 
   // Handler: start dragging from a connection point
   const onAnchorPointerDown = useCallback(
-    (e: React.PointerEvent, elementId: string, side: Side, anchorPt: { x: number; y: number }) => {
+    (e: React.PointerEvent, elementId: string, side: Side, anchorPt: { x: number; y: number }, anchorId?: string | null) => {
       e.stopPropagation();
       e.preventDefault();
       const rootEl = canvasRootRef.current;
@@ -733,6 +799,7 @@ export default function InfiniteCanvas() {
       setConnectDrag({
         fromId: elementId,
         fromSide: side,
+        fromAnchorId: anchorId || null,
         fromPt: anchorPt,
         currentPt: anchorPt,
         snapTo: null,
@@ -777,15 +844,17 @@ export default function InfiniteCanvas() {
     height: Math.abs(marquee.currentY - marquee.startY),
   } : null;
 
+  // Dot grid pattern ID — stable across renders
+  const dotPatternId = "umbra-dot-grid";
+  const dotSpacing = 40 * viewport.scale;
+  // Modulo keeps offset small to avoid float precision issues in WKWebView
+  const dotOffX = ((viewport.x % dotSpacing) + dotSpacing) % dotSpacing;
+  const dotOffY = ((viewport.y % dotSpacing) + dotSpacing) % dotSpacing;
+
   return (
     <div
       ref={canvasRootRef}
-      className={`absolute inset-0 min-w-0 overflow-hidden canvas-bg${drawingMode ? " cursor-crosshair" : connectMode ? " cursor-crosshair" : ""}`}
-      style={{
-        backgroundImage: "radial-gradient(circle, rgba(255, 255, 255, 0.13) 1.5px, transparent 1.5px)",
-        backgroundSize: `${40 * viewport.scale}px ${40 * viewport.scale}px`,
-        backgroundPosition: `${viewport.x}px ${viewport.y}px`,
-      }}
+      className={`absolute inset-0 min-w-0 overflow-hidden canvas-bg${drawingMode ? " cursor-crosshair" : connectMode ? " cursor-crosshair" : pendingElementType ? " cursor-crosshair" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -795,75 +864,143 @@ export default function InfiniteCanvas() {
       onDragOver={onCanvasDragOver}
       onDrop={onCanvasDrop}
     >
+      {/* SVG dot grid — renders crisply in both Chrome and WKWebView */}
+      <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 0 }}>
+        <defs>
+          <pattern
+            id={dotPatternId}
+            x={dotOffX}
+            y={dotOffY}
+            width={dotSpacing}
+            height={dotSpacing}
+            patternUnits="userSpaceOnUse"
+          >
+            <circle cx={1} cy={1} r={1} fill={isLight ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.13)"} />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill={`url(#${dotPatternId})`} />
+      </svg>
+
       <div
         className="absolute inset-0 origin-top-left will-change-transform"
         style={{
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
         }}
       >
-        {/* Connector lines */}
+        {/* Straight connector lines — rendered behind elements */}
         <svg
           className="absolute overflow-visible"
           style={{ left: 0, top: 0, width: 1, height: 1, pointerEvents: "none" }}
         >
-          {arrows.map((a) => {
+          {straightArrows.map((a) => {
             const from = elements[a.linkFromId!];
             const to = elements[a.linkToId!];
             if (!from || !to) return null;
             const fromSide = (a.linkFromSide || "right") as Side;
             const toSide = (a.linkToSide || "left") as Side;
-            const fromPt = sideAnchor(elementRect(from), fromSide);
-            const toPt = sideAnchor(elementRect(to), toSide);
-            const mode = a.connectorMode || "straight";
-            const d = connectorPath(fromPt, toPt, fromSide, toSide, mode);
+            const fromPt = resolveAnchor(from, fromSide, a.linkFromAnchorId);
+            const toPt = resolveAnchor(to, toSide, a.linkToAnchorId);
+            const d = connectorPath(fromPt, toPt, fromSide, toSide, "straight");
             const isSelected = selectedConnectorId === a.id || selectedElementIds.includes(a.id);
             const isHovered = hoveredConnectorId === a.id;
-            const lineColor = a.connectorColor || "rgba(255,255,255,0.15)";
-            const lineThickness = a.connectorThickness || 1.5;
-            const displayColor = isSelected ? "#4a9eff" : isHovered ? "rgba(255,255,255,0.35)" : lineColor;
+            const lineColor = (a.connectorColor && a.connectorColor !== "rgba(255,255,255,0.15)") ? a.connectorColor : defaultConnectorColor;
+            const lineThickness = a.connectorThickness || 2.5;
+            const displayColor = isSelected ? selectionColor : isHovered ? "rgba(128,128,128,0.5)" : lineColor;
             const displayWidth = (isSelected ? Math.max(lineThickness, 2.5) : lineThickness) / viewport.scale;
             return (
               <g key={a.id}>
-                {/* Fat invisible hit area for clicking */}
-                <path
-                  d={d}
-                  fill="none"
-                  stroke="transparent"
-                  strokeWidth={12 / viewport.scale}
-                  style={{ pointerEvents: "stroke", cursor: "pointer" }}
-                  onClick={(ev) => onConnectorClick(ev, a.id)}
-                  onMouseEnter={() => setHoveredConnectorId(a.id)}
-                  onMouseLeave={() => setHoveredConnectorId(null)}
+                <path d={d} fill="none" stroke="transparent" strokeWidth={12 / viewport.scale} style={{ pointerEvents: "stroke", cursor: "pointer" }} onClick={(ev) => onConnectorClick(ev, a.id)} onMouseEnter={() => setHoveredConnectorId(a.id)} onMouseLeave={() => setHoveredConnectorId(null)} />
+                <path d={d} fill="none" stroke={displayColor} strokeWidth={displayWidth} strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: "none", transition: "stroke 0.15s, stroke-width 0.15s" }} />
+                {a.showArrowhead !== false && renderArrowhead(toPt, toSide, lineThickness, viewport.scale, displayColor, fromPt)}
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* Connection point indicators in connect mode */}
+        {connectMode && !connectDrag && visible
+          .filter((el) => el.type !== "arrow" && el.type !== "drawing")
+          .map((el) =>
+            allAnchors(el).map((anchor, idx) => {
+              const isItemAnchor = !!(anchor as any).anchorId;
+              const sz = isItemAnchor ? 12 : 16;
+              const half = sz / 2;
+              return (
+                <div
+                  key={`${el.id}-${anchor.side}-${(anchor as any).anchorId || idx}`}
+                  className="absolute z-10"
+                  style={{
+                    left: anchor.x - half,
+                    top: anchor.y - half,
+                    width: sz,
+                    height: sz,
+                    borderRadius: "50%",
+                    background: isItemAnchor ? "rgba(74, 158, 255, 0.5)" : "rgba(74, 158, 255, 0.7)",
+                    border: `2px solid ${isItemAnchor ? "rgba(74, 158, 255, 0.8)" : "#4a9eff"}`,
+                    cursor: "crosshair",
+                    transition: "transform 0.1s, background 0.1s",
+                    pointerEvents: "auto",
+                  }}
+                  onPointerDown={(e) => onAnchorPointerDown(e, el.id, anchor.side, { x: anchor.x, y: anchor.y }, (anchor as any).anchorId)}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.transform = "scale(1.5)";
+                    (e.currentTarget as HTMLElement).style.background = "#4a9eff";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.transform = "scale(1)";
+                    (e.currentTarget as HTMLElement).style.background = isItemAnchor ? "rgba(74, 158, 255, 0.5)" : "rgba(74, 158, 255, 0.7)";
+                  }}
                 />
-                {/* Visible line */}
-                <path
-                  d={d}
-                  fill="none"
-                  stroke={displayColor}
-                  strokeWidth={displayWidth}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ pointerEvents: "none", transition: "stroke 0.15s, stroke-width 0.15s" }}
-                />
-                {/* Arrowhead */}
-                {(() => {
-                  const headSize = 8 / viewport.scale;
-                  const angle = Math.atan2(
-                    toPt.y - (mode === "straight" ? fromPt.y : toPt.y - (toSide === "top" ? -1 : toSide === "bottom" ? 1 : 0) * 20),
-                    toPt.x - (mode === "straight" ? fromPt.x : toPt.x - (toSide === "left" ? -1 : toSide === "right" ? 1 : 0) * 20),
-                  );
-                  const x1 = toPt.x - headSize * Math.cos(angle - Math.PI / 6);
-                  const y1 = toPt.y - headSize * Math.sin(angle - Math.PI / 6);
-                  const x2 = toPt.x - headSize * Math.cos(angle + Math.PI / 6);
-                  const y2 = toPt.y - headSize * Math.sin(angle + Math.PI / 6);
-                  return (
-                    <polygon
-                      points={`${toPt.x},${toPt.y} ${x1},${y1} ${x2},${y2}`}
-                      fill={displayColor}
-                      style={{ pointerEvents: "none", transition: "fill 0.15s" }}
-                    />
-                  );
-                })()}
+              );
+            }),
+          )}
+
+        {/* Elements */}
+        {visible
+          .filter((el) => el.type !== "arrow")
+          .map((el) => (
+            <div
+              key={el.id}
+              onPointerDown={(e) => handleCardPointerDown(e, el.id)}
+            >
+              <CanvasElementCard
+                element={el}
+                scale={viewport.scale}
+                onCanvasDragOver={onCanvasDragOver}
+                onCanvasDrop={onCanvasDrop}
+              />
+            </div>
+          ))}
+
+        {/* Routed connector lines (orthogonal/curve) — rendered above elements */}
+        <svg
+          className="absolute overflow-visible"
+          style={{ left: 0, top: 0, width: 1, height: 1, pointerEvents: "none" }}
+        >
+          {routedArrows.map((a) => {
+            const from = elements[a.linkFromId!];
+            const to = elements[a.linkToId!];
+            if (!from || !to) return null;
+            const fromSide = (a.linkFromSide || "right") as Side;
+            const toSide = (a.linkToSide || "left") as Side;
+            const fromPt = resolveAnchor(from, fromSide, a.linkFromAnchorId);
+            const toPt = resolveAnchor(to, toSide, a.linkToAnchorId);
+            const mode = a.connectorMode || "straight";
+            const obstacles = visible
+              .filter((el) => el.type !== "arrow" && el.type !== "drawing")
+              .map((el) => elementRect(el));
+            const d = connectorPath(fromPt, toPt, fromSide, toSide, mode, obstacles);
+            const isSelected = selectedConnectorId === a.id || selectedElementIds.includes(a.id);
+            const isHovered = hoveredConnectorId === a.id;
+            const lineColor = (a.connectorColor && a.connectorColor !== "rgba(255,255,255,0.15)") ? a.connectorColor : defaultConnectorColor;
+            const lineThickness = a.connectorThickness || 2.5;
+            const displayColor = isSelected ? selectionColor : isHovered ? "rgba(128,128,128,0.5)" : lineColor;
+            const displayWidth = (isSelected ? Math.max(lineThickness, 2.5) : lineThickness) / viewport.scale;
+            return (
+              <g key={a.id}>
+                <path d={d} fill="none" stroke="transparent" strokeWidth={12 / viewport.scale} style={{ pointerEvents: "stroke", cursor: "pointer" }} onClick={(ev) => onConnectorClick(ev, a.id)} onMouseEnter={() => setHoveredConnectorId(a.id)} onMouseLeave={() => setHoveredConnectorId(null)} />
+                <path d={d} fill="none" stroke={displayColor} strokeWidth={displayWidth} strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: "none", transition: "stroke 0.15s, stroke-width 0.15s" }} />
+                {a.showArrowhead !== false && renderArrowhead(toPt, toSide, lineThickness, viewport.scale, displayColor)}
               </g>
             );
           })}
@@ -888,7 +1025,24 @@ export default function InfiniteCanvas() {
                   strokeDasharray={connectDrag.snapTo ? "none" : `${6 / viewport.scale}`}
                   style={{ pointerEvents: "none" }}
                 />
-                {/* Snap indicator dot */}
+                {(() => {
+                  const tp = connectDrag.snapTo?.pt || connectDrag.currentPt;
+                  const fp = connectDrag.fromPt;
+                  const headSize = 10 / viewport.scale;
+                  const angle = Math.atan2(tp.y - fp.y, tp.x - fp.x);
+                  const spread = Math.PI / 5;
+                  const ax = tp.x - headSize * Math.cos(angle - spread);
+                  const ay = tp.y - headSize * Math.sin(angle - spread);
+                  const bx = tp.x - headSize * Math.cos(angle + spread);
+                  const by = tp.y - headSize * Math.sin(angle + spread);
+                  return (
+                    <polygon
+                      points={`${tp.x},${tp.y} ${ax},${ay} ${bx},${by}`}
+                      fill={connectDrag.snapTo ? "#4a9eff" : "rgba(255,255,255,0.4)"}
+                      style={{ pointerEvents: "none" }}
+                    />
+                  );
+                })()}
                 {connectDrag.snapTo && (
                   <circle
                     cx={connectDrag.snapTo.pt.x}
@@ -902,56 +1056,6 @@ export default function InfiniteCanvas() {
             );
           })()}
         </svg>
-
-        {/* Connection point indicators in connect mode */}
-        {connectMode && !connectDrag && visible
-          .filter((el) => el.type !== "arrow" && el.type !== "drawing")
-          .map((el) =>
-            allAnchors(el).map((anchor) => (
-              <div
-                key={`${el.id}-${anchor.side}`}
-                className="absolute z-10"
-                style={{
-                  left: anchor.x - 8,
-                  top: anchor.y - 8,
-                  width: 16,
-                  height: 16,
-                  borderRadius: "50%",
-                  background: "rgba(74, 158, 255, 0.7)",
-                  border: "2px solid #4a9eff",
-                  cursor: "crosshair",
-                  transition: "transform 0.1s, background 0.1s",
-                  pointerEvents: "auto",
-                }}
-                onPointerDown={(e) => onAnchorPointerDown(e, el.id, anchor.side, { x: anchor.x, y: anchor.y })}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.transform = "scale(1.5)";
-                  (e.currentTarget as HTMLElement).style.background = "#4a9eff";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.transform = "scale(1)";
-                  (e.currentTarget as HTMLElement).style.background = "rgba(74, 158, 255, 0.7)";
-                }}
-              />
-            )),
-          )}
-
-        {/* Elements */}
-        {visible
-          .filter((el) => el.type !== "arrow")
-          .map((el) => (
-            <div
-              key={el.id}
-              onPointerDown={(e) => handleCardPointerDown(e, el.id)}
-            >
-              <CanvasElementCard
-                element={el}
-                scale={viewport.scale}
-                onCanvasDragOver={onCanvasDragOver}
-                onCanvasDrop={onCanvasDrop}
-              />
-            </div>
-          ))}
 
         {/* Active drawing stroke (while pointer is down) */}
         {activeDrawPath && (
@@ -977,11 +1081,21 @@ export default function InfiniteCanvas() {
           className="fixed pointer-events-none z-50"
           style={{
             ...marqueeStyle,
-            border: "1px solid rgba(74, 158, 255, 0.5)",
-            backgroundColor: "rgba(74, 158, 255, 0.08)",
+            border: "1px solid var(--selection-border)",
+            backgroundColor: "rgba(128, 128, 128, 0.08)",
             borderRadius: 2,
           }}
         />
+      )}
+
+      {/* Pending element type indicator */}
+      {pendingElementType && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-lg text-[12px] text-white/70 font-medium tracking-wide"
+          style={{ background: "var(--toolbar-bg)", border: "1px solid var(--border-subtle)" }}
+        >
+          Click to place <span className="text-white/90 capitalize">{pendingElementType === "checklist" ? "to-do" : pendingElementType}</span>
+          <span className="text-white/30 ml-2">Esc to cancel</span>
+        </div>
       )}
 
       {/* Context menu */}
@@ -998,16 +1112,9 @@ export default function InfiniteCanvas() {
   );
 }
 
-/** Find the element ID from a DOM node by matching position */
+/** Find the element ID from a DOM node using data attribute */
 function findElementIdFromDom(
   domEl: HTMLElement,
-  visible: { id: string; position: { x: number; y: number } }[],
 ): string | null {
-  const left = parseFloat(domEl.style.left || "");
-  const top = parseFloat(domEl.style.top || "");
-  if (isNaN(left) || isNaN(top)) return null;
-  const match = visible.find(
-    (el) => Math.abs(el.position.x - left) < 1 && Math.abs(el.position.y - top) < 1,
-  );
-  return match?.id ?? null;
+  return domEl.getAttribute("data-canvas-element") || null;
 }

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import type { BoardElement } from "@/types/elements";
-import { NOTE_COLORS } from "@/types/elements";
+import { NOTE_COLORS, getNoteColors } from "@/types/elements";
 import { useBoardStore } from "@/store/useBoardStore";
 import { fetchLinkMeta, isTauri } from "@/lib/desktopApi";
 
@@ -113,9 +113,11 @@ function MediaPlayer({ assetLocalPath, type }: { assetLocalPath?: string; type: 
 function ChecklistRenderer({
   content,
   onChange,
+  elementId,
 }: {
   content: string;
   onChange: (content: string) => void;
+  elementId: string;
 }) {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const focusNextId = useRef<string | null>(null);
@@ -163,8 +165,24 @@ function ChecklistRenderer({
   };
 
   const removeItem = (idx: number) => {
+    const deletedItemId = items[idx].id;
     const next = items.filter((_, i) => i !== idx);
     onChange(JSON.stringify(next));
+
+    // Clean up any connectors attached to this checklist item's anchor
+    const elements = useBoardStore.getState().elements;
+    const arrowsToDelete = Object.values(elements).filter(
+      (el) =>
+        el.type === "arrow" &&
+        ((el.linkFromId === elementId && el.linkFromAnchorId === deletedItemId) ||
+         (el.linkToId === elementId && el.linkToAnchorId === deletedItemId))
+    );
+    if (arrowsToDelete.length > 0) {
+      const deleteElement = useBoardStore.getState().deleteElement;
+      for (const arrow of arrowsToDelete) {
+        deleteElement(arrow.id);
+      }
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, idx: number) => {
@@ -306,14 +324,45 @@ function TableRenderer({
   const COL_W = 120; // fixed column width
 
   // Auto-adjust rows/cols when element is resized — integral snapping
+  // Prevent shrinking below the last row/col that contains content
   useEffect(() => {
-    const needCols = Math.max(1, Math.floor(element.width / COL_W));
-    const needRows = Math.max(1, Math.floor((element.height - titleH) / cellH));
-    if (needRows !== rows || needCols !== cols) {
+    let desiredCols = Math.max(1, Math.floor(element.width / COL_W));
+    let desiredRows = Math.max(1, Math.floor((element.height - titleH) / cellH));
+
+    // Find the minimum rows/cols required to preserve all content
+    let minRowWithContent = 0;
+    let minColWithContent = 0;
+    for (let r = 0; r < cells.length; r++) {
+      for (let c = 0; c < (cells[r]?.length || 0); c++) {
+        if (cells[r][c] && cells[r][c].trim() !== "") {
+          minRowWithContent = Math.max(minRowWithContent, r + 1);
+          minColWithContent = Math.max(minColWithContent, c + 1);
+        }
+      }
+    }
+
+    // Don't allow shrinking below content boundaries
+    const effectiveRows = Math.max(desiredRows, minRowWithContent);
+    const effectiveCols = Math.max(desiredCols, minColWithContent);
+
+    // If the element is trying to shrink below content, snap the element size back
+    if (effectiveRows > desiredRows || effectiveCols > desiredCols) {
+      const minWidth = effectiveCols * COL_W;
+      const minHeight = effectiveRows * cellH + titleH;
+      if (element.width < minWidth || element.height < minHeight) {
+        updateElement(element.id, {
+          width: Math.max(element.width, minWidth),
+          height: Math.max(element.height, minHeight),
+        });
+        return; // Will re-trigger with corrected dimensions
+      }
+    }
+
+    if (effectiveRows !== rows || effectiveCols !== cols) {
       const newCells: string[][] = [];
-      for (let r = 0; r < needRows; r++) {
+      for (let r = 0; r < effectiveRows; r++) {
         const row: string[] = [];
-        for (let c = 0; c < needCols; c++) {
+        for (let c = 0; c < effectiveCols; c++) {
           row.push(cells[r]?.[c] ?? "");
         }
         newCells.push(row);
@@ -348,7 +397,7 @@ function TableRenderer({
       )}
 
       {/* Table grid */}
-      <div className="flex-1 overflow-hidden" style={showTitle ? { borderTop: "1px solid rgba(255,255,255,0.06)" } : undefined}>
+      <div className="flex-1 overflow-hidden" style={showTitle ? { borderTop: "1px solid var(--border-subtle)" } : undefined}>
         <table className="w-full h-full border-collapse" style={{ tableLayout: "fixed" }}>
           <tbody>
             {cells.map((row, ri) => (
@@ -363,12 +412,12 @@ function TableRenderer({
                   // Determine border colors — darker when adjacent to shaded areas
                   const borderRightColor =
                     (shadeCol && ci === 0) || (shadeRow && ri === 0)
-                      ? "rgba(255,255,255,0.18)"
-                      : "rgba(255,255,255,0.06)";
+                      ? "var(--border-strong)"
+                      : "var(--border-subtle)";
                   const borderBottomColor =
                     (shadeRow && ri === 0) || (shadeCol && ci === 0)
-                      ? "rgba(255,255,255,0.18)"
-                      : "rgba(255,255,255,0.06)";
+                      ? "var(--border-strong)"
+                      : "var(--border-subtle)";
 
                   return (
                     <td
@@ -381,7 +430,7 @@ function TableRenderer({
                         backgroundColor: (editing || selected) && isSelected
                           ? "rgba(74, 158, 255, 0.12)"
                           : isShaded
-                            ? "rgba(255,255,255,0.10)"
+                            ? "var(--shade-bg)"
                             : "transparent",
                         borderRight: ci < cols - 1 ? `1px solid ${borderRightColor}` : undefined,
                         borderBottom: ri < rows - 1 ? `1px solid ${borderBottomColor}` : undefined,
@@ -616,8 +665,10 @@ export default function CanvasElementCard({
 
   const selectedElementIds = useBoardStore((s) => s.selectedElementIds);
   const selected = selectedElementIds.includes(element.id);
+  const theme = useBoardStore((s) => s.userSettings.theme || "dark");
   const colorKey = element.color || "default";
-  const colors = NOTE_COLORS[colorKey] || NOTE_COLORS.default;
+  const noteColors = getNoteColors(theme);
+  const colors = noteColors[colorKey] || noteColors.default;
 
   /* --- Drag logic --- */
   const beginDrag = useCallback(
@@ -661,9 +712,24 @@ export default function CanvasElementCard({
       if (t.closest("button, a[href], [data-resize-handle]")) return;
       // For tables: clicking a cell selects the table + enters cell editing (no drag)
       if (handleTableCellDown(e)) return;
+      // For note/document/comment/text: single click on content area enters editing directly
+      if (!editing && (element.type === "note" || element.type === "document" || element.type === "comment" || element.type === "text")) {
+        // Check if click is in the text content area (not on resize handle, buttons, etc.)
+        const isContentArea = t.closest("[data-text-content]") || t.matches("[data-text-content]");
+        if (isContentArea || selected) {
+          e.stopPropagation();
+          setSelectedElement(element.id);
+          setEditing(true);
+          setTimeout(() => {
+            const textarea = rootRef.current?.querySelector("textarea");
+            textarea?.focus();
+          }, 0);
+          return;
+        }
+      }
       beginDrag(e);
     },
-    [beginDrag, editing, handleTableCellDown],
+    [beginDrag, editing, handleTableCellDown, selected, element.type, setSelectedElement, element.id],
   );
 
   // Fallback for WKWebView: mouseDown also handles table cell clicks
@@ -786,7 +852,7 @@ export default function CanvasElementCard({
   const isFile = element.type === "file";
   const isDrawing = element.type === "drawing";
 
-  const cardBg = isText || isDrawing ? "transparent" : isNote ? colors.bg : "#2a2c30";
+  const cardBg = isText || isDrawing ? "transparent" : isNote ? colors.bg : "var(--surface-card)";
 
 
   const style: React.CSSProperties = {
@@ -797,12 +863,12 @@ export default function CanvasElementCard({
     backgroundColor: cardBg,
     borderRadius: isText || isDrawing ? 0 : 6,
     border: isText || isDrawing
-      ? (selected ? "1px dashed #4a9eff" : "none")
-      : selected ? "2px solid #4a9eff" : "1px solid rgba(255,255,255,0.06)",
+      ? (selected ? `1px dashed ${theme === "light" ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)"}` : "none")
+      : selected ? `2px solid ${theme === "light" ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.8)"}` : `1px solid ${theme === "light" ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.06)"}`,
     boxShadow: isText || isDrawing
       ? "none"
       : selected
-        ? "0 0 0 1px rgba(74, 158, 255, 0.15)"
+        ? `0 0 0 1px ${theme === "light" ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.1)"}`
         : hovered
           ? "0 2px 8px rgba(0,0,0,0.25)"
           : "0 1px 3px rgba(0,0,0,0.15)",
@@ -814,7 +880,7 @@ export default function CanvasElementCard({
     <div
       ref={rootRef}
       role="presentation"
-      data-canvas-element="true"
+      data-canvas-element={element.id}
       draggable={false}
       className={`absolute select-none canvas-card${isText ? "" : " overflow-hidden"}`}
       style={style}
@@ -874,7 +940,7 @@ export default function CanvasElementCard({
               onPointerDown={(e) => e.stopPropagation()}
             />
           ) : (
-            <div className="flex-1 p-4 text-[14px] leading-[1.6] whitespace-pre-wrap break-words overflow-hidden" style={{ color: colors.text }}>
+            <div data-text-content className="flex-1 p-4 text-[14px] leading-[1.6] whitespace-pre-wrap break-words overflow-hidden" style={{ color: colors.text, cursor: "text" }}>
               {element.content || <span className="text-white/18">Start typing...</span>}
             </div>
           )}
@@ -949,19 +1015,21 @@ export default function CanvasElementCard({
         <ChecklistRenderer
           content={element.content}
           onChange={(c) => updateElement(element.id, { content: c })}
+          elementId={element.id}
         />
       )}
 
       {/* ---- TEXT ---- */}
       {isText && (() => {
         const fontSize = element.textFontSize || 24;
+        const defaultTextColor = theme === "light" ? "rgba(44,44,46,0.85)" : "rgba(255,255,255,0.8)";
         const textStyle: React.CSSProperties = {
           fontSize: `${fontSize}px`,
           fontWeight: element.textBold ? "bold" : undefined,
           fontStyle: element.textItalic ? "italic" : undefined,
           textDecoration: element.textStrikethrough ? "line-through" : undefined,
-          color: element.textColor || "rgba(255,255,255,0.8)",
-          textAlign: element.noteTextAlign || "left",
+          color: element.textColor || defaultTextColor,
+          textAlign: element.noteTextAlign || "center",
         };
         return (
           <div className="w-full h-full flex items-start">
@@ -992,7 +1060,7 @@ export default function CanvasElementCard({
                 onPointerDown={(e) => e.stopPropagation()}
               />
             ) : (
-              <div className="flex-1 leading-[1.5] whitespace-pre-wrap break-words p-2" style={textStyle}>
+              <div data-text-content className="flex-1 leading-[1.5] whitespace-pre-wrap break-words p-2" style={{ ...textStyle, cursor: "text" }}>
                 {element.content || <span className="text-white/25">Type text...</span>}
               </div>
             )}
@@ -1068,7 +1136,7 @@ export default function CanvasElementCard({
                 onPointerDown={(e) => e.stopPropagation()}
               />
             ) : (
-              <div className="flex-1 text-[14px] text-white/70 leading-[1.6] whitespace-pre-wrap break-words overflow-hidden">
+              <div data-text-content className="flex-1 text-[14px] text-white/70 leading-[1.6] whitespace-pre-wrap break-words overflow-hidden" style={{ cursor: "text" }}>
                 {element.content || <span className="text-white/18">Write here...</span>}
               </div>
             )}
@@ -1091,7 +1159,7 @@ export default function CanvasElementCard({
               onPointerDown={(e) => e.stopPropagation()}
             />
           ) : (
-            <div className="flex-1 text-[14px] text-white/60 leading-[1.6] whitespace-pre-wrap break-words overflow-hidden">
+            <div data-text-content className="flex-1 text-[14px] text-white/60 leading-[1.6] whitespace-pre-wrap break-words overflow-hidden" style={{ cursor: "text" }}>
               {element.content || <span className="text-white/18">Add comment...</span>}
             </div>
           )}
@@ -1117,7 +1185,7 @@ export default function CanvasElementCard({
               strokeLinejoin="round"
             />
           ) : (
-            <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.15)" fontSize={11}>
+            <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="var(--connector-default)" fontSize={11}>
               Drawing
             </text>
           )}
